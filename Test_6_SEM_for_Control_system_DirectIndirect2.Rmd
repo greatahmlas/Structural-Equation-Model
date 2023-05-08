@@ -1,0 +1,338 @@
+---
+title: "Test_6_Structural equation analysis with indirect effects on CEY"
+output: html_document
+date: '2023-April'
+Author: 'Ahmed Lasisi'
+editor_options: 
+  chunk_output_type: console
+---
+#This is my SEM document for Test 6 CONTROL CROPPING SYSTEM
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# ############### NOTE##############
+#Briefly, the following are steps to build a structural equation model:
+#(1) Check your data for multicollinearity
+#(2) Check that your data conform to the assumption of normality
+#(3) Standardized your data for a mean of zero and variance of 1
+#(4)Propose an a priori model according to experience or background information and run in SEM;
+#(5)Test if important pathways are left out, if the existing pathways are significant
+#(6) Revise the a priori model by dropping insignificant pathways: start with dropping the most non-significant, then run the model again, then drop the most non-significant, run again. Continue this until all paths are significant
+#(7)Using modindices, check for missing pathways, add to the model and continue this one after the other
+#(8) Retain only significant pathways.
+#(9)Check features of good SEM model: RMSEA <0.06 with p valuve > 0.05; Chi-sq> 0.05; TLI > 0.95; CFI >0.90; SRMR < 0.05
+
+# ############### SIGNS **********##########################
+##~ predict, used for regression of observed outcome to observed predictors (e.g., y ~ x)
+#=~ indicator, used for latent variable to observed indicator in factor analysis measurement models (e.g., f =~ q + r + s)
+#~~ covariance (e.g., x ~~ x)
+##***********https://stats.oarc.ucla.edu/r/seminars/rsem/
+
+
+# ########################NOTES ON INDIRECT EFFECTS AND TOTAL EFFECTS########################
+#Dener et al 2020 (https://doi.org/10.1016/j.agee.2020.107273);https://www.youtube.com/watch?v=_tTPHt4cPwI; https://quantdev.ssri.psu.edu/sites/qdev/files/lavaan_presentation.html
+#The default arrows, coefficient, rsqusre etc from one exogenous (predictor) to endogenous (response) is a DIRECT PATH/EFFECT
+
+#Letters or labels are used to produce INDIRECT path/effect thriough another variable. E.g., to indicate the INDIRECT effect of availN on CEY through SOC, the model is written as (1). SOC ~ a*availN + ... (other variables)                                                                                    (2). CEY ~ b*SOC + ..... (other variables)                                                                                          (3) IndirectEffect := a*b
+
+# # The regression output (Rsquare, coeeficient, variance, AIC, RMSEA etc) are the same when with or without labelling the indirect paths with letters
+
+# To know total effect you may add another letter to the direct and indirect pathways and code the sum out or do it manually from the coefficient with no label. E.g. To know the TOTAL PATH/EFFECT of AvailN on CEY we write                                                                                (1) SOC ~ a*availN + ... (other variables)                                                                                        (2) CEY ~ b*SOC + c*availN..... (other variables) (c is the direct effect. the                                         coefficient will be the same if we do not add c)                                                                                             (3)IndirectEffect := a*b                                                                                                          (4) TOTAL EFFECT = IndirectEffect + c
+
+# If there are multiples indirect pathways we use letters to call them out and sum them. E.g Add INDIRECT effect of availN on CEY through GPc, the model is written as (1). SOC ~ a*availN + ... (other variables)                                                                                       (2) CEY ~ b*SOC + c*availN + d*GPc ..... (other variables)                                                                        (3) GPc ~e*availN +                                                                                                               (4) IndirectEffect1 := a*b #This INDIRECT for Avail to CEY through SOC                                                            (5) IndirectEffect2 := d*e #This INDIRECT for Avail to CEY through GPc                                                             (6)    Tot_indEffect := IndirectEffect1 + IndirectEffect2  #This is the total INDIRECtEFFECT                                                         of  availN on CEY through mediators (SOC + GPc)                                                                (7) TOTAL EFFCECT= Tot_indEffect + c                                              
+
+
+#Another way of calculating
+#INDIRECT effects is  by multiplying path coefficients along all parallel indirect routes leading from the explanatory variable to the predicted variable and summing their products. (For each Indirect pathway multiply the coeficient you get from regression leading to the response variable like for effct of availN on CEY through SOC, multiply coefficient of availN to CEY by SOC to CEY) 
+#total effects are the summation of the indirect and direct paths .
+
+#For graphing visit (https://app.diagrams.net/?src=about)
+``` {r}
+
+library(lavaan) #Package of SEM
+library(semPlot) #graphing result of SEM
+library(tidySEM)#graphing result of SEM
+library(ggplot2)#graphing result of SEM
+library(dplyr) #maneuver data
+library(ggpubr) #normality
+library(corrplot) ##graphing result of correlation
+library(lavaanPlot)#graphing result of SEM
+library(gridExtra) #to arrange graph
+library(psych) #to create p value on correlation
+library(tidyverse) #data visualization and manipulation
+library(car) #To check multicollinearity
+library(Hmisc) #create P values for correlation
+library(olsrr) #to check tolerance of VIF (Variance Inflation Factors) and normality assumption
+
+```
+
+
+#Load and prepare data
+```{r}
+library(readxl)
+Test_6 <- read_excel("Test_6_SEM_April2023_class.xlsx", 
+    sheet = "Test6_SEM_All_points")
+head(Test_6)
+names(Test_6)
+Test_6$PUE <-as.numeric(Test_6$PUE)
+Test_6$NUE <-as.numeric(Test_6$NUE)
+str(Test_6)
+```
+
+#####CONTROL cropping system########################
+```{r}
+Test_6_Control<- dplyr::filter(Test_6, TRT %in% c("Control"))
+```
+
+#Checking for multicollinearity for CONTROL using VIF. Cutoff is VIF>10
+```{r}
+CON_independ <- Test_6_Control[ -c(1,1:12) ]#To select independent variables
+names(CON_independ)
+str(CON_independ)
+
+CON_independ_CEY <- Test_6_Control[ -c(1,1:8, 10:12) ]#To select independent variables & CEY
+
+names(CON_independ_CEY)
+str(CON_independ_CEY)
+Multicoll_model_CON <- lm(CEY~., data = CON_independ_CEY) #Initial model check for multicollinearity. VIF less than or equal to 10 is preferred. Using this or next code to remove the higher VIF in order. Code may sometime collapse due to alias (multicollinearity)
+
+summary(Multicoll_model_CON)
+vif(Multicoll_model_CON)  #This will show the VIF value.
+ols_vif_tol(Multicoll_model_CON)  #This will show the VIF value
+
+#No multicollinearity
+#Acceptable VIF: Avail_N  pH EC OC Clay Ann_precip  GPc  GDDc 
+```
+
+#SEM data for CONTROL cropping system
+```{r}
+CON_SEM_data <- Test_6_Control[ -c(1:8) ]
+names(CON_SEM_data)
+str(CON_SEM_data)
+```
+
+#CONTROL_NORMALITY CHECK
+```{r} 
+#measured/observed Variables
+#"CEY" "StrawYield"   "PUE"        "NUE" 
+
+CON_normality <- lm(CEY ~ Avail_N  +  pH  +   OC + Clay   + GPc + GDDc , data=CON_SEM_data) #Check each endogenous variable
+
+summary(CON_normality)
+qqnorm(resid(CON_normality))
+shapiro.test(resid(CON_normality))
+residualPlot(CON_normality)
+
+#Residuals of all measured variable conform to normality
+```
+
+#Standardize CONTROL data
+``` {r }
+#To standardize the scale of the data i.e convert original data to Z-score for a mean of 0 and variance of 1
+CON_SEM_stand <- scale(CON_SEM_data,  scale=TRUE)
+CON_SEM_stand
+```
+
+
+
+#1 :prior model_All possible model: This model has some error to give NA as standard error
+```{r}
+Prior_CON_model <- '
+  CEY ~   StrawYield  + PUE + NUE + Avail_N  +  pH  +  OC +  Clay   + GPc + GDDc 
+  
+StrawYield ~ CEY + PUE + NUE + Avail_N  +  pH  +  OC +  Clay   + GPc + GDDc  
+
+PUE ~  CEY +  NUE + StrawYield + Avail_N  +  pH  +  OC +  Clay   + GPc + GDDc 
+
+NUE ~ CEY + StrawYield + PUE + Avail_N  +  pH  +  OC +  Clay   + GPc + GDDc  
+  '
+Prior_CON_model <- sem(Prior_CON_model, data=CON_SEM_stand)
+summary(Prior_CON_model, standardized=TRUE, fit.measures=TRUE, rsquare = TRUE) 
+semPaths(Prior_CON_model,  whatLabels = "est", what = "std", rotation = 2,
+      color = "lightblue",  layout = "spring", style = "lisrel", exoCov =FALSE, fade=FALSE)
+```
+
+#2 :prior model 2: The endogenous variabes were removed as predictor stepwisely to converge
+#cause of non-convergence
+#StrawYield ~ CEY + NUE + PUE 
+#NUE ~ StrawYield 
+#PUE ~ CEY + NUE + StrawYield
+
+```{r}
+Prior_CON_model2 <- '
+OC ~ a*Avail_N
+GPc ~ d*Avail_N
+Clay ~ f*OC
+GDDc ~ h*GPc
+CEY ~   StrawYield  + PUE + NUE  + c*Avail_N  +  pH  +  b*OC +  g*Clay   + e*GPc + i*GDDc 
+  
+StrawYield ~ Avail_N  +  pH  +  OC +  Clay +  GPc + GDDc  
+
+PUE ~  CEY + NUE + Avail_N  +  pH  +  OC +  Clay +  GPc + GDDc 
+
+NUE ~ CEY  + Avail_N  +  pH  +  OC +  Clay +   GPc + GDDc
+
+#You may not declare this indirect path coeeficient until you have had your parsimony model. Left here for observation
+IndEff1 := a*b #AvailN to CEY thru OC
+IndEff2:= d*e #AvailN to CEY thru GPc
+IndEff3:= f*g #OC to CEY thru Clay
+IndEff4:= h*i  #GPc to CEY thru GDDc
+TIndEff1_2:= IndEff1+IndEff2  #Total indirect availN  effect to CEY thru mediator
+TEfAll:= TIndEff1_2*c'  #Total  availN  effect to CEY
+
+Prior_CON_model2 <- sem(Prior_CON_model2, data=CON_SEM_stand)
+summary(Prior_CON_model2, standardized=TRUE, fit.measures=TRUE, rsquare = TRUE) 
+semPaths(Prior_CON_model2,  whatLabels = "est", what = "std", rotation = 2,
+      color = "lightblue",  layout = "spring", style = "lisrel", exoCov =FALSE, fade=FALSE)
+ #For graph: change or remove some items e,g #layout = "tree"  "tree2"   "spring" #edge.label.cex
+```
+
+```{r}
+modindices(Prior_CON_model2,sort=TRUE)
+```
+
+
+#3: Adjustment
+#Remove non-signifcant paths from high  to least non-sgificant pvalue. Check the model parameters
+#Remove non-significant regression in the order below
+#adj1: NUE ~  GDDc
+#NUE ~ OC
+#CEY~NUE
+#PUE ~Avail_N 
+#StrawYield ~  pH
+#CEY~PUE
+#CEY ~ pH
+#StrawYield ~ GDDc
+#CEY~ GDDc
+#NUE ~ pH
+
+# It is better to delay calling out the indirect pathways till you have your most parsimony model
+```{r}
+CON_Adj1 <- '
+ 
+CEY ~   StrawYield    + Avail_N   +  OC +  Clay   + GPc 
+  
+StrawYield ~ Avail_N    +  OC +  Clay +  GPc   
+
+PUE ~  CEY + NUE   +  pH  +  OC +  Clay +  GPc + GDDc 
+
+NUE ~ CEY   + Avail_N +  Clay +   GPc 
+'
+
+CON_Adj1 <- sem(CON_Adj1, data=CON_SEM_stand)
+summary(CON_Adj1, standardized=TRUE, fit.measures=TRUE, rsquare = TRUE) 
+semPaths(CON_Adj1,  whatLabels = "est", what = "std", rotation = 2,
+      color = "lightblue",  layout = "spring", style = "lisrel", nCharNodes=0,  exoCov =FALSE,  fade=FALSE)
+ 
+```
+
+#Now check modindices for sensible model prediction
+```{r}
+modindices(CON_Adj1,sort=TRUE)
+```
+
+#4
+#Adjustment with modinces prediction: 
+# No addition is significant
+#This is the parsimony model!
+```{r}
+CON_Adj_mod12 <- '
+  
+CEY ~   StrawYield    + Avail_N   +  OC +  Clay   + GPc 
+  
+StrawYield ~ Avail_N    +  OC +  Clay +  GPc   
+
+PUE ~  CEY + NUE   +  pH  +  OC +  Clay +  GPc + GDDc 
+
+NUE ~ CEY   + Avail_N +  Clay +   GPc 
+'
+CON_Adj_mod12 <- sem(CON_Adj_mod12, data=CON_SEM_stand)
+summary(CON_Adj_mod12, standardized=TRUE, fit.measures=TRUE, rsquare = TRUE) 
+semPaths(CON_Adj_mod12,  whatLabels = "est", what = "std", rotation = 2,
+      color = "lightblue",  layout = "spring", style = "lisrel", nCharNodes=0,  exoCov =FALSE,  fade=FALSE)
+#Change the figure: layout = "tree"  "tree2"   "spring" 
+#edge.label.cex
+                          
+```
+
+```{r}
+modindices(CON_Adj_mod12,sort=TRUE)
+```
+
+#5 WITH INDIRECT PATHWAY
+## To check for the indirect effect on CEY,create paths by adding more regressions to indicate path. The added letters are to identify paths created for linkages
+# Only retain indirect paths that are signficant
+```{r}
+CON_Adj_mod13 <- '
+    OC ~ a*Avail_N + d*Clay + f*GPc  #letters are to call out the indirect path to CEY thru OC for indirect effect use later 
+Clay ~ h*GPc  #letters are to call out the indirect path to CEY thru Clay for indirect effect use later 
+#Note that you will have to do remove and add indirect paths until your MODEL (RMSEA, SMR etc) looks good. These are the only INDIRECT that produce a good model overall
+
+CEY ~   StrawYield    + c*Avail_N   +  b*OC +  e*Clay   + g*GPc # letters are to call out their respective path (predictor) to CEY for indirect effect use later
+  
+StrawYield ~ Avail_N    +  OC +  Clay +  GPc   
+
+PUE ~  CEY + NUE   +  pH  +  OC +  Clay +  GPc + GDDc 
+
+NUE ~ CEY +  Avail_N +  Clay +   GPc 
+
+'
+CON_Adj_mod13 <- sem(CON_Adj_mod13, data=CON_SEM_stand)
+summary(CON_Adj_mod13, standardized=TRUE, fit.measures=TRUE, rsquare = TRUE) 
+semPaths(CON_Adj_mod13,  whatLabels = "est", what = "std", rotation = 2,
+      color = "lightblue",  layout = "spring", style = "lisrel", nCharNodes=0,  exoCov =FALSE,  fade=FALSE)
+```
+#At this point all regression are significant 
+
+
+```{r}
+modindices(CON_Adj_mod13,sort=TRUE)
+```
+
+
+
+#6 FINAL: SHOWING DIRECT, INDIRECT AND TOTAL EFFECT ON CEY
+# To check for the indirect effect on CEY,create paths by adding more regressions to indicate path. The added letters are to identify paths created for linkages
+# Only retain indirect paths that are signficant
+```{r}
+CON_Adj_mod14 <- '
+    OC ~ a*Avail_N + d*Clay + f*GPc  
+Clay ~ h*GPc   
+
+CEY ~   StrawYield    + c*Avail_N   +  b*OC +  e*Clay   + g*GPc 
+  
+StrawYield ~ Avail_N    +  OC +  Clay +  GPc   
+
+PUE ~  CEY + NUE   +  pH  +  OC +  Clay +  GPc + GDDc 
+
+NUE ~ CEY +  Avail_N +  Clay +   GPc 
+
+#To call out indirect path result
+IE1 := a*b #AvailN to CEY thru OC
+IE2:= d*b #Clay to CEY thru OC
+IE3:= f*b #GPc to CEY thru OC
+IE4:= h*e #GPc to CEY thru clay
+
+
+IE3_4:= IE3+IE4  #Total indirect effect of GPc to CEY thru mediator (Clay and OC)
+
+
+TE_availN:= IE1+c #Total effect of  availN   to CEY
+TE_Clay:= IE2+e  #Total  effect of Clay   to CEY
+TE_GPc:= IE4+g  #Total  effect of Clay   to CEY
+
+'
+CON_Adj_mod14 <- sem(CON_Adj_mod14, data=CON_SEM_stand)
+summary(CON_Adj_mod14, standardized=TRUE, fit.measures=TRUE, rsquare = TRUE) 
+semPaths(CON_Adj_mod14,  whatLabels = "est", what = "std", rotation = 2,
+      color = "lightblue",  layout = "spring", style = "lisrel", nCharNodes=0,  exoCov =FALSE,  fade=FALSE)
+```
+
+```{r}
+modindices(CON_Adj_mod14,sort=TRUE)
+```
+
+# Interpretation sample 
+# Direct: CEY ~ avail_N = for every 1 unit increase in avail_N, CEY increased by 0.078 unit
+# Indirect: Increase in avail_N was associated with increase in CEY through increase in SOC. 
